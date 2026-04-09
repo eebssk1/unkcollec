@@ -1,0 +1,266 @@
+diff --git a/build-win32.txt b/build-win32.txt
+index 40e9d47d..df04cb36 100644
+--- a/build-win32.txt
++++ b/build-win32.txt
+@@ -1,7 +1,11 @@
++[constants]
++cflags = [ '-D__1ENABLE_AGGRESSIVE_GRAPHITE9__', '-fgcse-las', '-falign-labels=8:7:4', '-falign-functions=24:18', '-fmin-function-alignment=16', '-flimit-function-alignment', '-flto-partition=one', '-funsafe-math-optimizations' ]
++linkflags = [ '-Wl,-O3', '-Wl,--relax', '-Wl,-gc-sections', '-Wl,--sort-common=descending', '-Wl,--sort-section,alignment' ]
++
+ [binaries]
+ c = 'i686-w64-mingw32-gcc'
+ cpp = 'i686-w64-mingw32-g++'
+-ar = 'i686-w64-mingw32-ar'
++ar = 'i686-w64-mingw32-gcc-ar'
+ strip = 'i686-w64-mingw32-strip'
+ windres = 'i686-w64-mingw32-windres'
+ 
+@@ -13,3 +17,9 @@ system = 'windows'
+ cpu_family = 'x86'
+ cpu = 'x86'
+ endian = 'little'
++
++[built-in options]
++c_args = cflags
++cpp_args = c_args
++c_link_args = linkflags
++cpp_link_args = c_link_args
+diff --git a/build-win64.txt b/build-win64.txt
+index 8eb1b29d..63940223 100644
+--- a/build-win64.txt
++++ b/build-win64.txt
+@@ -1,7 +1,11 @@
++[constants]
++cflags = [ '-D__1ENABLE_AGGRESSIVE_GRAPHITE9__', '-fgcse-las', '-falign-labels=8:7:4', '-falign-functions=24:18', '-fmin-function-alignment=16', '-flimit-function-alignment', '-flto-partition=one', '-funsafe-math-optimizations' ]
++linkflags = [ '-Wl,-O3', '-Wl,--relax', '-Wl,-gc-sections', '-Wl,--sort-common=descending', '-Wl,--sort-section,alignment' ]
++
+ [binaries]
+ c = 'x86_64-w64-mingw32-gcc'
+ cpp = 'x86_64-w64-mingw32-g++'
+-ar = 'x86_64-w64-mingw32-ar'
++ar = 'x86_64-w64-mingw32-gcc-ar'
+ strip = 'x86_64-w64-mingw32-strip'
+ windres = 'x86_64-w64-mingw32-windres'
+ 
+@@ -13,3 +17,9 @@ system = 'windows'
+ cpu_family = 'x86_64'
+ cpu = 'x86_64'
+ endian = 'little'
++
++[built-in options]
++c_args = cflags
++cpp_args = c_args
++c_link_args = linkflags
++cpp_link_args = c_link_args
+diff --git a/meson.build b/meson.build
+index 0b356ac2..7c264244 100644
+--- a/meson.build
++++ b/meson.build
+@@ -12,8 +12,8 @@ dxvk_is_msvc = cpp.get_argument_syntax() == 'msvc'
+ compiler_args = [
+   '-O3',
+   '-pipe',
+-  '-march=x86-64',
+-  '-mtune=x86-64',
++  '-march=haswell',
++  '-mtune=cannonlake',
+   '-msse',
+   '-msse2',
+   '-mfpmath=sse',
+@@ -190,6 +190,12 @@ else
+   ]
+ endif
+ 
++if cc.has_argument('-mprefer-avx128')
++  if cc.has_argument('-mno-align-vector-insn')
++    compiler_args += ['-mprefer-avx128', '-mno-align-vector-insn', '-DAVX_WK']
++  endif
++endif
++
+ dxvk_include_path = include_directories(dxvk_include_dirs)
+ 
+ add_project_arguments(cpp.get_supported_arguments(compiler_args), language: 'cpp')
+diff --git a/src/d3d9/d3d9_include.h b/src/d3d9/d3d9_include.h
+index 1d8ab50d..be6078c1 100644
+--- a/src/d3d9/d3d9_include.h
++++ b/src/d3d9/d3d9_include.h
+@@ -38,6 +38,8 @@
+ #include "../util/util_math.h"
+ #include "../util/util_string.h"
+ 
++#define __USE_DWM_SCHED__
++#include "../util/util_misc.h"
+ // Missed definitions in Wine/MinGW.
+ 
+ #ifndef D3DPRESENT_FORCEIMMEDIATE
+diff --git a/src/d3d9/d3d9_swapchain.cpp b/src/d3d9/d3d9_swapchain.cpp
+index dfd29f07..f4be966d 100644
+--- a/src/d3d9/d3d9_swapchain.cpp
++++ b/src/d3d9/d3d9_swapchain.cpp
+@@ -43,6 +43,8 @@ namespace dxvk {
+     // Apply initial window mode and fullscreen state
+     if (!m_presentParams.Windowed && FAILED(EnterFullscreenMode(pPresentParams, pFullscreenDisplayMode)))
+       throw DxvkError("D3D9: Failed to set initial fullscreen state");
++
++    if(m_presentParams.Windowed) EnableDwmSched();
+   }
+ 
+ 
+diff --git a/src/dxgi/dxgi_factory.cpp b/src/dxgi/dxgi_factory.cpp
+index d29ce4a8..fb8e5b3f 100644
+--- a/src/dxgi/dxgi_factory.cpp
++++ b/src/dxgi/dxgi_factory.cpp
+@@ -6,7 +6,8 @@
+ #include "dxgi_swapchain_dispatcher.h"
+ 
+ #include "../util/util_singleton.h"
+-
++#define __USE_DWM_SCHED__
++#include "../util/util_misc.h"
+ namespace dxvk {
+ 
+   static Singleton<DxvkInstance>   g_dxvkInstance;
+@@ -564,6 +565,7 @@ namespace dxvk {
+       }
+ 
+       frontendSwapChain = new DxgiSwapChain(this, presenter.ptr(), hWnd, &desc, &fsDesc, pDevice);
++      if(fsDesc.Windowed == TRUE) EnableDwmSched();
+     } else {
+       Logger::err("DXGI: CreateSwapChainForHwnd: Unsupported device type");
+       return DXGI_ERROR_UNSUPPORTED;
+diff --git a/src/dxvk/dxvk_options.cpp b/src/dxvk/dxvk_options.cpp
+index 74cd6202..648ccd7c 100644
+--- a/src/dxvk/dxvk_options.cpp
++++ b/src/dxvk/dxvk_options.cpp
+@@ -9,7 +9,7 @@ namespace dxvk {
+     enableStateCache      = config.getOption<bool>    ("dxvk.enableStateCache",       true);
+     enableMemoryDefrag    = config.getOption<Tristate>("dxvk.enableMemoryDefrag",     Tristate::Auto);
+     numCompilerThreads    = config.getOption<int32_t> ("dxvk.numCompilerThreads",     0);
+-    enableGraphicsPipelineLibrary = config.getOption<Tristate>("dxvk.enableGraphicsPipelineLibrary", Tristate::False);
++    enableGraphicsPipelineLibrary = config.getOption<Tristate>("dxvk.enableGraphicsPipelineLibrary", Tristate::Auto);
+     enableDescriptorBuffer = config.getOption<Tristate>("dxvk.enableDescriptorBuffer", Tristate::Auto);
+     trackPipelineLifetime = config.getOption<Tristate>("dxvk.trackPipelineLifetime",  Tristate::Auto);
+     useRawSsbo            = config.getOption<Tristate>("dxvk.useRawSsbo",             Tristate::Auto);
+@@ -22,7 +22,7 @@ namespace dxvk {
+     zeroMappedMemory      = config.getOption<bool>    ("dxvk.zeroMappedMemory",       false);
+     allowFse              = config.getOption<bool>    ("dxvk.allowFse",               false);
+     framePace             = config.getOption<std::string>("dxvk.framePace",           "");
+-    lowLatencyOffset      = config.getOption<int32_t> ("dxvk.lowLatencyOffset",       0);
++    lowLatencyOffset      = config.getOption<int32_t> ("dxvk.lowLatencyOffset",       -2000);
+     lowLatencyAllowCpuFramesOverlap
+                           = config.getOption<bool>    ("dxvk.lowLatencyAllowCpuFramesOverlap", true);
+     deviceFilter          = config.getOption<std::string>("dxvk.deviceFilter",        "");
+diff --git a/src/util/util_bit.h b/src/util/util_bit.h
+index 2a530258..11443e31 100644
+--- a/src/util/util_bit.h
++++ b/src/util/util_bit.h
+@@ -12,7 +12,7 @@
+ 
+ #ifdef DXVK_ARCH_X86
+   #ifndef _MSC_VER
+-    #if defined(_WIN32) && (defined(__AVX__) || defined(__AVX2__))
++    #if defined(_WIN32) && (defined(__AVX__) || defined(__AVX2__)) && !defined(AVX_WK)
+       #error "AVX-enabled builds not supported due to stack alignment issues."
+     #endif
+     #if defined(__WINE__) && defined(__clang__)
+diff --git a/src/util/util_misc.h b/src/util/util_misc.h
+index 12ee9998..01921f93 100644
+--- a/src/util/util_misc.h
++++ b/src/util/util_misc.h
+@@ -53,4 +53,34 @@ namespace dxvk {
+ 
+     bool& m_val;
+   };
++
++#ifdef __USE_DWM_SCHED__
++  static bool dwmfail = false;
++  [[maybe_unused]] static void EnableDwmSched(void) {
++    bool error = false;
++    typedef LONG (WINAPI *DwmEnableMMCSS)(bool);
++    DwmEnableMMCSS DFunc = NULL;
++    HMODULE dll = NULL;
++    if(dwmfail) return;
++    const char* dn = "dwmapi.dll";
++    if(!GetModuleHandleEx(0, dn, &dll)) {
++        dll = LoadLibraryEx(dn, NULL, 0x800);
++    }
++    if(NULL == dll) goto set;
++    DFunc = (DwmEnableMMCSS)GetProcAddress(dll, "DwmEnableMMCSS");
++    if(NULL == DFunc) goto set;
++    if(S_OK == DFunc(true)) {
++        Logger::info("DWM Sched ""Enabled !");
++    } else {
++        Logger::warn("DWM Sched ""Failed to Enable?");
++    }
++  end:
++    if(error) dwmfail = error;
++    return;
++  set:
++    error = true;
++    goto end;
++  }
++#endif
++
+ }
+diff --git a/src/wsi/win32/wsi_platform_win32.cpp b/src/wsi/win32/wsi_platform_win32.cpp
+index 03bf40a5..277e9aa0 100644
+--- a/src/wsi/win32/wsi_platform_win32.cpp
++++ b/src/wsi/win32/wsi_platform_win32.cpp
+@@ -1,6 +1,7 @@
+ #if defined(DXVK_WSI_WIN32)
+ 
+ #include "wsi_platform_win32.h"
++#include "../../util/log/log.h"
+ 
+ namespace dxvk::wsi {
+ 
+@@ -13,6 +14,13 @@ namespace dxvk::wsi {
+     return true;
+   }
+ 
++  Win32WsiDriver::Win32WsiDriver() {
++    int tp = GetThreadPriority(GetCurrentThread());
++    if(tp != THREAD_PRIORITY_ERROR_RETURN && tp <=THREAD_PRIORITY_NORMAL)
++      SetThreadPriority(GetCurrentThread(),THREAD_PRIORITY_ABOVE_NORMAL);
++      Logger::info("Enhanced WSI Thread Priority !");
++  }
++
+   WsiBootstrap Win32WSI = {
+     "Win32",
+     createWin32WsiDriver
+diff --git a/src/wsi/win32/wsi_platform_win32.h b/src/wsi/win32/wsi_platform_win32.h
+index 3f03e64d..94de0fbd 100644
+--- a/src/wsi/win32/wsi_platform_win32.h
++++ b/src/wsi/win32/wsi_platform_win32.h
+@@ -11,6 +11,8 @@ namespace dxvk::wsi {
+     uint64_t m_lastForegroundTimestamp = 0;
+ 
+   public:
++    Win32WsiDriver();
++
+     // Platform
+     virtual std::vector<const char *> getInstanceExtensions();
+ 
+diff --git a/src/wsi/win32/wsi_window_win32.cpp b/src/wsi/win32/wsi_window_win32.cpp
+index a849306f..cc73f7cd 100644
+--- a/src/wsi/win32/wsi_window_win32.cpp
++++ b/src/wsi/win32/wsi_window_win32.cpp
+@@ -4,6 +4,9 @@
+ 
+ #include "../../util/util_string.h"
+ #include "../../util/log/log.h"
++#define __USE_DWM_SCHED__
++#include "../../util/util_misc.h"
++
+ 
+ namespace dxvk::wsi {
+ 
+@@ -230,6 +233,8 @@ namespace dxvk::wsi {
+     ::SetWindowPos(hWindow, (pState->win.exstyle & WS_EX_TOPMOST) ? HWND_TOPMOST : HWND_NOTOPMOST,
+       rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top, flags);
+ 
++    EnableDwmSched();
++
+     return true;
+   }
+ 
