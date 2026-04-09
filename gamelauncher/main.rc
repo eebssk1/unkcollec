@@ -1,0 +1,23 @@
+100 ICON "main.ico"
+1 VERSIONINFO
+FILEVERSION    1,0,0,1
+PRODUCTVERSION 1,0,0,1
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "080404b0"
+    BEGIN
+      VALUE "CompanyName",       "EBK21(main.godaftwithebk.pub)"
+      VALUE "FileDescription",   "游戏多用启动工具"
+      VALUE "FileVersion",       "1.0.0.1"
+      VALUE "LegalCopyright",    "GoDaftWithEBK ME"
+      VALUE "OriginalFilename",  "xjbqidong.exe"
+      VALUE "ProductName",       "启动它马的游戏"
+      VALUE "ProductVersion",    "1.0.0.1"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x804, 1200
+  END
+END
